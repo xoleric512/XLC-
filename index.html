@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Slime Dance Battle x5</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    (() => {
+      const { sin, cos, hypot, max, min, PI, random } = Math;
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+
+      let w = 0, h = 0;
+      function resize() {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const cssW = window.innerWidth;
+        const cssH = window.innerHeight;
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        w = canvas.width;
+        h = canvas.height;
+        ctx.translate(w / 2, w / 2);
+        ctx.scale(w, w);
+      }
+      resize();
+      addEventListener('resize', resize);
+
+      const rnd = (x, dx = 0) => random() * x + dx;
+      const rnds = (x = 1) => rnd(x, -x / 2);
+      const pt = (x, y) => ({ x, y });
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const lerpPt = (a, b, t) => pt(lerp(a.x, b.x, t), lerp(a.y, b.y, t));
+      const many = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+      const smoothstep = t => 3 * t * t - 2 * t * t;
+      const circle = (p, r) => {
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, r, r, 0, 0, PI * 2);
+        ctx.fill();
+      };
+
+      function tentacle(from, to, t) {
+        const count = 100;
+        t = smoothstep(t);
+        many(count, i => {
+          let x = i / count;
+          if (x > t) return;
+          let p = lerpPt(from, to, x);
+          x -= 0.5;
+          let r = (x * x + 0.2) ** 2 * 0.02;
+          circle(p, r);
+        });
+      }
+
+      function thing() {
+        let x = rnds(), y = rnds(),
+            vx = rnds(0.01), vy = rnds(0.01),
+            spin = rnd(PI * 2),
+            spinSpeed = rnds(0.02),
+            rx = rnd(0.2, 0.05), ry = rnd(0.2, 0.05),
+            targetX = rnds(0.5), targetY = rnds(0.5),
+            pts = many(200, () => ({
+              da: rnd() * PI * 2,
+              x: rnds(), y: rnds(), t: 0
+            }));
+        return {
+          pos: { x, y },
+          vel: { x: vx, y: vy },
+          target: { x: targetX, y: targetY },
+          spin, spinSpeed, rx, ry,
+          active: true,
+          respawnTimer: 0,
+          size: 1,
+          follow(x_, y_) { this.target.x = x_; this.target.y = y_; },
+          dance(t) {
+            this.pos.x = cos(t * 0.5 + this.spin) * this.rx;
+            this.pos.y = sin(t * 0.5 + this.spin) * this.ry;
+            this.spin += this.spinSpeed;
+          },
+          tick(t) {
+            if (!this.active) {
+              this.respawnTimer += 0.016;
+              if (this.respawnTimer > 3) {
+                this.active = true;
+                this.respawnTimer = 0;
+                this.size = 1;
+                this.pos.x = rnds(0.5);
+                this.pos.y = rnds(0.5);
+              }
+              return;
+            }
+            
+            const c = pt(this.pos.x, this.pos.y);
+            pts.forEach(p => {
+              const dist = hypot(p.x - this.pos.x, p.y - this.pos.y);
+              const grow = dist < 0.1;
+              const dt = grow ? 0.05 : -0.1;
+              p.t = max(min(3, p.t + dt), 0);
+              p.t && tentacle(c, p, min(1, p.t));
+            });
+          }
+        };
+      }
+
+      const colors = ['#00fff0', '#ff006e', '#ffe600', '#00ff75', '#ff7b00'];
+      const things = many(5, thing);
+
+      let lastPointer = 0;
+      addEventListener("pointermove", e => {
+        const cssW = window.innerWidth;
+        const cssH = window.innerHeight;
+        const x = (e.clientX - cssW / 2) / cssW;
+        const y = (e.clientY - cssH / 2) / cssW;
+        lastPointer = performance.now();
+        things.forEach(thing => thing.follow(x, y));
+      });
+
+      function battleAndDance(t) {
+        const now = performance.now();
+        const inactive = now - lastPointer > 2000;
+        
+        if (inactive) {
+          // raqs + o'zaro to'qnashish
+          for (let i = 0; i < things.length; i++) {
+            if (!things[i].active) continue;
+            
+            things[i].dance(t + i);
+            for (let j = i + 1; j < things.length; j++) {
+              if (!things[j].active) continue;
+              
+              const a = things[i], b = things[j];
+              const dx = a.pos.x - b.pos.x;
+              const dy = a.pos.y - b.pos.y;
+              const dist = hypot(dx, dy);
+              const minDist = 0.15;
+              
+              if (dist < minDist && dist > 0.001) {
+                const force = (minDist - dist) * 0.02;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+                a.vel.x += fx;
+                a.vel.y += fy;
+                b.vel.x -= fx;
+                b.vel.y -= fy;
+                
+                // Anime'lar bir-biriga tegganida, kattasi kichigini quysin
+                if (dist < minDist * 0.7) {
+                  const aSize = a.rx + a.ry;
+                  const bSize = b.rx + b.ry;
+                  
+                  if (aSize > bSize * 1.2) {
+                    // a b ni quydi
+                    b.active = false;
+                    b.respawnTimer = 0;
+                    a.size = 1.3; // G'alaba animatsiyasi
+                    setTimeout(() => a.size = 1, 500);
+                  } else if (bSize > aSize * 1.2) {
+                    // b a ni quydi
+                    a.active = false;
+                    a.respawnTimer = 0;
+                    b.size = 1.3; // G'alaba animatsiyasi
+                    setTimeout(() => b.size = 1, 500);
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // foydalanuvchi tegyapti -> pointerga ergashish
+          things.forEach(thing => {
+            if (!thing.active) return;
+            thing.pos.x += (thing.target.x - thing.pos.x) / 10;
+            thing.pos.y += (thing.target.y - thing.pos.y) / 10;
+          });
+        }
+      }
+
+      requestAnimationFrame(function frame(t) {
+        t /= 1000;
+        ctx.fillStyle = "#00000060";
+        ctx.fillRect(-1, -1, 2, 2);
+
+        battleAndDance(t);
+
+        things.forEach((thing, i) => {
+          if (!thing.active) {
+            // Yo'qolgan animeni respawn qilish
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = colors[i % colors.length];
+            const scale = 1 - (thing.respawnTimer / 3);
+            ctx.scale(scale, scale);
+            thing.tick(t + i * 0.3);
+            ctx.restore();
+          } else {
+            ctx.save();
+            ctx.scale(thing.size, thing.size);
+            ctx.fillStyle = colors[i % colors.length];
+            thing.tick(t + i * 0.3);
+            ctx.restore();
+          }
+          
+          thing.vel.x *= 0.95;
+          thing.vel.y *= 0.95;
+        });
+
+        requestAnimationFrame(frame);
+      });
+    })();
+  </script>
+</body>
+</html>
